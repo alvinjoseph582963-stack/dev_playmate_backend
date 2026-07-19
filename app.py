@@ -25,7 +25,7 @@ CORS(app, resources={r"/api/*": {"origins": "*"}})
 app.config.update(
     SQLALCHEMY_DATABASE_URI=os.getenv(
         'DATABASE_URL',
-        'mysql+pymysql://root:password@localhost/playmate_db'
+        'sqlite:///playmate.db'
     ),
     SQLALCHEMY_TRACK_MODIFICATIONS=False,
     JWT_SECRET_KEY=os.getenv('JWT_SECRET_KEY', 'playmate-super-secret-key-2025'),
