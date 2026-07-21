@@ -564,6 +564,160 @@ def admin_process_slots():
     return jsonify({'message': 'Processed'}), 200
 
 
+# ═══════════════════════════════════════════════════
+#  ADMIN MANAGEMENT ROUTES
+# ═══════════════════════════════════════════════════
+
+def verify_admin_user():
+    try:
+        verify_jwt_in_request()
+        uid = get_jwt_identity()
+        user = db.session.get(User, uid)
+        if user and user.email.lower() == 'jovelrobin07@gmail.com':
+            return True
+    except Exception:
+        pass
+    return False
+
+
+@app.route('/api/admin/overview', methods=['GET'])
+def admin_overview():
+    if not verify_admin_user():
+        return jsonify({'error': 'Unauthorized. Admin access only.'}), 403
+
+    total_users   = User.query.count()
+    total_venues  = Venue.query.count()
+    total_slots   = Slot.query.count()
+    total_joins   = SlotMember.query.count()
+    open_slots    = Slot.query.filter_by(status='open').count()
+    locked_slots  = Slot.query.filter_by(status='locked').count()
+    cancelled_s   = Slot.query.filter_by(status='cancelled').count()
+    completed_s   = Slot.query.filter_by(status='completed').count()
+
+    return jsonify({
+        'users':        total_users,
+        'venues':       total_venues,
+        'slots':        total_slots,
+        'bookings':     total_joins,
+        'open_slots':   open_slots,
+        'locked_slots': locked_slots,
+        'cancelled':    cancelled_s,
+        'completed':    completed_s,
+    }), 200
+
+
+@app.route('/api/admin/users', methods=['GET'])
+def admin_get_users():
+    if not verify_admin_user():
+        return jsonify({'error': 'Unauthorized. Admin access only.'}), 403
+
+    users  = User.query.order_by(User.created_at.desc()).all()
+    result = []
+    for u in users:
+        ud = user_to_dict(u, private=True)
+        ud['is_active']    = u.is_active
+        ud['venue_count']  = Venue.query.filter_by(owner_id=u.id).count()
+        ud['slot_joins']   = SlotMember.query.filter_by(user_id=u.id).count()
+        result.append(ud)
+    return jsonify({'users': result}), 200
+
+
+@app.route('/api/admin/users/<user_id>/toggle-status', methods=['PUT'])
+def admin_toggle_user_status(user_id):
+    if not verify_admin_user():
+        return jsonify({'error': 'Unauthorized. Admin access only.'}), 403
+
+    u = db.session.get(User, user_id)
+    if not u:
+        return jsonify({'error': 'User not found'}), 404
+    u.is_active = not u.is_active
+    db.session.commit()
+    return jsonify({'message': 'User status updated', 'is_active': u.is_active}), 200
+
+
+@app.route('/api/admin/users/<user_id>', methods=['DELETE'])
+def admin_delete_user(user_id):
+    if not verify_admin_user():
+        return jsonify({'error': 'Unauthorized. Admin access only.'}), 403
+
+    u = db.session.get(User, user_id)
+    if not u:
+        return jsonify({'error': 'User not found'}), 404
+    db.session.delete(u)
+    db.session.commit()
+    return jsonify({'message': 'User deleted'}), 200
+
+
+@app.route('/api/admin/venues', methods=['GET'])
+def admin_get_venues():
+    if not verify_admin_user():
+        return jsonify({'error': 'Unauthorized. Admin access only.'}), 403
+
+    venues = Venue.query.order_by(Venue.created_at.desc()).all()
+    result = []
+    for v in venues:
+        vd = venue_to_dict(v)
+        vd['is_active']   = v.is_active
+        owner = db.session.get(User, v.owner_id)
+        vd['owner_name']  = owner.name if owner else 'Unknown'
+        vd['owner_email'] = owner.email if owner else ''
+        vd['totalSlots']  = Slot.query.filter_by(venue_id=v.id).count()
+        vd['openSlots']   = Slot.query.filter_by(venue_id=v.id, status='open').count()
+        result.append(vd)
+    return jsonify({'venues': result}), 200
+
+
+@app.route('/api/admin/venues/<venue_id>/toggle-status', methods=['PUT'])
+def admin_toggle_venue_status(venue_id):
+    if not verify_admin_user():
+        return jsonify({'error': 'Unauthorized. Admin access only.'}), 403
+
+    v = db.session.get(Venue, venue_id)
+    if not v:
+        return jsonify({'error': 'Venue not found'}), 404
+    v.is_active = not v.is_active
+    db.session.commit()
+    return jsonify({'message': 'Venue status updated', 'is_active': v.is_active}), 200
+
+
+@app.route('/api/admin/slots', methods=['GET'])
+def admin_get_slots():
+    if not verify_admin_user():
+        return jsonify({'error': 'Unauthorized. Admin access only.'}), 403
+
+    slots = Slot.query.order_by(Slot.slot_date.desc(), Slot.start_time.asc()).all()
+    result = []
+    for s in slots:
+        sd = slot_to_dict(s, include_members=True)
+        v  = db.session.get(Venue, s.venue_id)
+        if v:
+            sd['venueName']     = v.name
+            sd['venueLocation'] = v.location
+            sd['sportType']     = v.sport_type
+            owner = db.session.get(User, v.owner_id)
+            sd['ownerName']     = owner.name if owner else 'Unknown'
+        result.append(sd)
+    return jsonify({'slots': result}), 200
+
+
+@app.route('/api/admin/slots/<slot_id>/status', methods=['PUT'])
+def admin_update_slot_status(slot_id):
+    if not verify_admin_user():
+        return jsonify({'error': 'Unauthorized. Admin access only.'}), 403
+
+    s = db.session.get(Slot, slot_id)
+    if not s:
+        return jsonify({'error': 'Slot not found'}), 404
+    data = request.get_json() or {}
+    new_status = data.get('status')
+    if new_status in ['open', 'locked', 'cancelled', 'completed']:
+        s.status = new_status
+        db.session.commit()
+        return jsonify({'message': 'Slot status updated', 'status': s.status}), 200
+    return jsonify({'error': 'Invalid status'}), 400
+
+
+
 # ─── SEED DATA ──────────────────────────────────────
 
 def seed():
@@ -574,7 +728,8 @@ def seed():
     u2 = User(name='Priya Sharma', email='priya@demo.com', phone='9123456789', password_hash=generate_password_hash('demo123'))
     u3 = User(name='Karan Singh',  email='karan@demo.com', phone='9988776655', password_hash=generate_password_hash('demo123'))
     u4 = User(name='Neha Patel',   email='neha@demo.com',  phone='9871234567', password_hash=generate_password_hash('demo123'))
-    db.session.add_all([u1, u2, u3, u4])
+    u_admin = User(name='Jovel Robin', email='jovelrobin07@gmail.com', phone='9900112233', password_hash=generate_password_hash('123456'))
+    db.session.add_all([u1, u2, u3, u4, u_admin])
     db.session.flush()
 
     venues_data = [
